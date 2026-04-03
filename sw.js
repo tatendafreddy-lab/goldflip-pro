@@ -6,4 +6,4 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Minimal: no caching to keep behavior simple for now
+// Minimal SW: no caching to keep behavior simple
