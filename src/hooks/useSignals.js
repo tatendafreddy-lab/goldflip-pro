@@ -1,0 +1,104 @@
+import { useMemo } from "react";
+import { calculateRSI, calculateMACD } from "../utils/indicators.js";
+import { getLondonBreakoutSignal } from "../utils/londonBreakout.js";
+
+function rsiSignal(value) {
+  if (value === null || value === undefined) return { signal: "neutral", confidence: 0 };
+  if (value < 40) {
+    return { signal: "buy", confidence: Math.min(((40 - value) / 40) * 100, 100) };
+  }
+  if (value > 60) {
+    return { signal: "sell", confidence: Math.min(((value - 60) / 40) * 100, 100) };
+  }
+  return { signal: "neutral", confidence: 0 };
+}
+
+function macdSignal(macdLine, signalLine, histogram) {
+  const lastIdx = (() => {
+    for (let i = macdLine.length - 1; i >= 1; i -= 1) {
+      if (macdLine[i] !== null && signalLine[i] !== null && macdLine[i - 1] !== null && signalLine[i - 1] !== null) {
+        return i;
+      }
+    }
+    return -1;
+  })();
+
+  if (lastIdx === -1) return { signal: "neutral", confidence: 0, macdLine, signalLine, histogram };
+
+  const currentMacd = macdLine[lastIdx];
+  const currentSignal = signalLine[lastIdx];
+  const prevMacd = macdLine[lastIdx - 1];
+  const prevSignal = signalLine[lastIdx - 1];
+  const currentHist = histogram[lastIdx];
+
+  const bullCross = currentMacd > currentSignal && prevMacd <= prevSignal;
+  const bearCross = currentMacd < currentSignal && prevMacd >= prevSignal;
+
+  if (currentHist > 0 && bullCross) {
+    return {
+      signal: "buy",
+      confidence: Math.min(Math.abs(currentHist) * 120, 100),
+      macdLine,
+      signalLine,
+      histogram,
+    };
+  }
+  if (currentHist < 0 && bearCross) {
+    return {
+      signal: "sell",
+      confidence: Math.min(Math.abs(currentHist) * 120, 100),
+      macdLine,
+      signalLine,
+      histogram,
+    };
+  }
+
+  return { signal: "neutral", confidence: 0, macdLine, signalLine, histogram };
+}
+
+export function useSignals(ohlcv) {
+  return useMemo(() => {
+    const closes = Array.isArray(ohlcv) ? ohlcv.map((c) => c.close) : [];
+    if (!closes.length) {
+      return {
+        rsi: { value: null, signal: "neutral" },
+        macd: { macdLine: [], signalLine: [], histogram: [], signal: "neutral" },
+        combined: "neutral",
+        confidence: 0,
+        londonBreakout: {
+          signal: "WAIT",
+          entry: null,
+          stopLoss: null,
+          takeProfit: null,
+          riskReward: null,
+          isKillZone: false,
+        },
+      };
+    }
+
+    const rsiSeries = calculateRSI(closes, 14);
+    const rsiValue = rsiSeries[rsiSeries.length - 1];
+    const rsiSig = rsiSignal(rsiValue);
+
+    const { macdLine, signalLine, histogram } = calculateMACD(closes, 12, 26, 9);
+    const macdSig = macdSignal(macdLine, signalLine, histogram);
+
+    let combined = "neutral";
+    let confidence = 0;
+    if (rsiSig.signal !== "neutral" && rsiSig.signal === macdSig.signal) {
+      combined = rsiSig.signal;
+      confidence = Math.round((rsiSig.confidence + macdSig.confidence) / 2);
+    }
+
+    const currentPrice = closes[closes.length - 1];
+    const londonBreakout = getLondonBreakoutSignal(ohlcv, currentPrice);
+
+    return {
+      rsi: { value: rsiValue, signal: rsiSig.signal },
+      macd: { macdLine, signalLine, histogram, signal: macdSig.signal },
+      combined,
+      confidence,
+      londonBreakout,
+    };
+  }, [ohlcv]);
+}
