@@ -10,8 +10,5 @@
   "routes": [
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/" }
-  ],
-  "env": {
-    "VITE_GOLD_API_KEY": "@vite_gold_api_key"
-  }
+  ]
 }
