@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 
-// Proxied through Vite — no auth header needed here, vite.config.js handles it
-const API_URL = "/api/gold";
+// Direct Gold API endpoint (works on Vercel)
+const API_URL = "https://api.gold-api.com/price/XAU/USD";
 const CACHE_KEY = "goldflip-price-cache-v2";
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
-// Mock data generator
 function generateMockOhlcv(points = 80, seedPrice = 3150) {
   const out = [];
   let close = seedPrice;
@@ -30,7 +29,6 @@ function generateMockOhlcv(points = 80, seedPrice = 3150) {
   return out;
 }
 
-// Cache helpers
 function readCache() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -49,30 +47,16 @@ function writeCache(payload) {
       CACHE_KEY,
       JSON.stringify({ ...payload, timestamp: Date.now() })
     );
-  } catch {
-    /* storage full — ignore */
-  }
+  } catch {}
 }
 
-// Parse Gold-API response
-// Gold-API returns: { price: 3147.72, ... }
-// We handle several possible shapes just in case
 function parsePrice(data) {
   if (!data) return NaN;
-
-  // Primary: { price: 3147.72 }
   if (typeof data.price === "number") return data.price;
-
-  // Alternate field names
   const candidates = [data.value, data.XAU, data.XAU_price, data.rate];
-  for (const c of candidates) {
-    if (typeof c === "number" && Number.isFinite(c)) return c;
-  }
-
-  // Array format: [[timestamp, price], ...]
+  for (const c of candidates) if (typeof c === "number" && Number.isFinite(c)) return c;
   if (Array.isArray(data) && Array.isArray(data[0])) return Number(data[0][1]);
   if (Array.isArray(data) && typeof data[0] === "number") return data[0];
-
   return NaN;
 }
 
@@ -93,10 +77,8 @@ export function useGoldPrice(apiKey, mode = "live") {
     let cancelled = false;
     let interval;
 
-    // Build a new candle and append to existing OHLCV array
     const appendCandle = (prev, latestPrice) => {
-      const base =
-        prev?.length ? prev.slice(-79) : generateMockOhlcv(79, latestPrice);
+      const base = prev?.length ? prev.slice(-79) : generateMockOhlcv(79, latestPrice);
       const last = base[base.length - 1] || { close: latestPrice };
       const newCandle = {
         time: Date.now(),
@@ -123,19 +105,16 @@ export function useGoldPrice(apiKey, mode = "live") {
     };
 
     const fetchPrice = async () => {
-      // Serve from cache if still fresh
       const cache = readCache();
       const now = Date.now();
       if (cache && now - cache.timestamp < CACHE_TTL_MS) {
-        // In live mode, ignore demo cache so we can attempt a real fetch
         if (mode === "live" && cache.isMock) {
-          /* fall through to live call */
+          /* try live anyway */
         } else {
           if (!cancelled) {
             setPrice(cache.price);
             setOhlcv(cache.ohlcv || []);
             setIsMock(cache.isMock || false);
-            // Show "live" if cache was populated from live data, not "cache"
             setSource(cache.isMock ? "demo" : "live");
             setIsLoading(false);
           }
@@ -151,18 +130,11 @@ export function useGoldPrice(apiKey, mode = "live") {
           headers: apiKey ? { "x-access-token": apiKey } : undefined,
         });
 
-        console.log("[useGoldPrice] Raw response:", response.status, response.data);
-
-        if (response.status !== 200) {
-          throw new Error(`HTTP ${response.status}`);
-        }
+        if (response.status !== 200) throw new Error(`HTTP ${response.status}`);
 
         const latestPrice = parsePrice(response.data);
-
         if (!Number.isFinite(latestPrice) || latestPrice <= 0) {
-          throw new Error(
-            `Unexpected response shape: ${JSON.stringify(response.data).slice(0, 120)}`
-          );
+          throw new Error(`Unexpected response shape: ${JSON.stringify(response.data).slice(0, 120)}`);
         }
 
         if (!cancelled) {
@@ -178,23 +150,20 @@ export function useGoldPrice(apiKey, mode = "live") {
           setIsLoading(false);
         }
       } catch (err) {
-        console.error("[useGoldPrice] Fetch failed:", err.message);
-
-        // Try stale cache before falling back to mock
-        const cache = readCache();
-        if (cache) {
+        // Try stale cache first
+        const cache2 = readCache();
+        if (cache2) {
           if (!cancelled) {
-            setPrice(cache.price);
-            setOhlcv(cache.ohlcv || []);
-            setIsMock(cache.isMock || false);
-            setSource(cache.isMock ? "demo" : "live");
-            setError(null); // stale cache is fine, don't show error
+            setPrice(cache2.price);
+            setOhlcv(cache2.ohlcv || []);
+            setIsMock(cache2.isMock || false);
+            setSource(cache2.isMock ? "demo" : "live");
+            setError(null);
             setIsLoading(false);
           }
           return;
         }
-
-        // No cache — use mock
+        // Fall back to demo
         if (!cancelled) {
           runDemo();
           setError(err?.message || "Network error");
@@ -202,7 +171,6 @@ export function useGoldPrice(apiKey, mode = "live") {
       }
     };
 
-    // Demo mode skips the network call entirely
     if (mode === "demo") {
       runDemo();
       return () => {
@@ -211,9 +179,7 @@ export function useGoldPrice(apiKey, mode = "live") {
       };
     }
 
-    // Kick off immediately
     void fetchPrice();
-
     interval = setInterval(fetchPrice, 30_000);
     return () => {
       cancelled = true;
