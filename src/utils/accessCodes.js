@@ -12,8 +12,11 @@ export const VALID_CODES = [
   "GF-A2M6JG", "GF-Q4T8LK", "GF-W7F1ZE", "GF-S9P3DX", "GF-Z6R5VA"
 ];
 
+const OWNER_CODE = (import.meta.env.VITE_OWNER_CODE || "").trim().toUpperCase();
+
 export function isValidCode(code = "") {
   const normalized = code.trim().toUpperCase();
+  if (OWNER_CODE && normalized === OWNER_CODE) return true;
   return VALID_CODES.includes(normalized);
 }
 
