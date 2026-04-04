@@ -6,6 +6,10 @@ import SignalPanel from "./SignalPanel.jsx";
 import RiskCalculator from "./RiskCalculator.jsx";
 import TradeLog from "./TradeLog.jsx";
 import AlertFeed from "./AlertFeed.jsx";
+import ProGate from "./ProGate.jsx";
+import { useAccess } from "../hooks/useAccess.js";
+import JournalPanel from "./JournalPanel.jsx";
+import CompoundTracker from "./CompoundTracker.jsx";
 
 const Backtester = lazy(() => import("./Backtester.jsx"));
 
@@ -114,6 +118,7 @@ function BellIcon({ filled }) {
 }
 
 function Dashboard({ market, signals, riskManager }) {
+  const { isPro, activateCode } = useAccess();
   const [tab, setTab] = useState("live");
   const [alerts, setAlerts] = useState(() => {
     try {
@@ -296,6 +301,12 @@ function Dashboard({ market, signals, riskManager }) {
 
           <div className="flex items-center gap-3">
             <div className="text-right">
+              <p className="text-xs text-slate-400">Growth tracker</p>
+              <p className="text-sm font-semibold text-amber-200">
+                ${riskManager.accountBalance.toLocaleString()} · proj to $1M: see Growth tab
+              </p>
+            </div>
+            <div className="text-right">
               <p className="text-xs text-slate-400">XAU/USD</p>
               <p className="text-xl font-semibold text-slate-50">
                 ${market.price > 0 ? market.price.toFixed(2) : "---"}
@@ -319,7 +330,7 @@ function Dashboard({ market, signals, riskManager }) {
 
         {/* Tabs */}
         <div className="flex gap-2">
-          {["live", "backtest"].map((t) => (
+          {["live", "journal", "growth", "backtest"].map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -329,7 +340,18 @@ function Dashboard({ market, signals, riskManager }) {
                   : "bg-slate-800 text-slate-200 hover:bg-slate-700"
               }`}
             >
-              {t === "live" ? "Live Trading" : "Backtester"}
+              {t === "live"
+                ? "Live Trading"
+                : t === "journal"
+                ? "Journal"
+                : t === "growth"
+                ? "Growth Tracker"
+                : "Backtester"}
+              {t === "backtest" && !isPro ? (
+                <span className="ml-2 rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px] font-bold text-amber-200">
+                  PRO
+                </span>
+              ) : null}
             </button>
           ))}
         </div>
@@ -399,25 +421,37 @@ function Dashboard({ market, signals, riskManager }) {
             <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
               <div className="space-y-6">
                 <div ref={signalsRef}>
-                  <PriceChart market={market} signals={signals} />
+                  <PriceChart market={market} signals={signals} isPro={isPro} />
                 </div>
-                <SignalPanel signal={signals} />
+                <ProGate isPro={isPro} activateCode={activateCode}>
+                  <SignalPanel signal={signals} />
+                </ProGate>
               </div>
               <div className="space-y-6">
                 <div ref={riskRef}>
-                  <RiskCalculator riskManager={riskManager} />
+                  <ProGate isPro={isPro} activateCode={activateCode}>
+                    <RiskCalculator riskManager={riskManager} />
+                  </ProGate>
                 </div>
-                <TradeLog riskManager={riskManager} />
+                <ProGate isPro={isPro} activateCode={activateCode}>
+                  <TradeLog riskManager={riskManager} />
+                </ProGate>
               </div>
             </div>
           </>
+        ) : tab === "journal" ? (
+          <JournalPanel />
+        ) : tab === "growth" ? (
+          <CompoundTracker balance={riskManager.accountBalance} journal={riskManager.getJournal()} riskPercent={riskManager.riskPercent} />
         ) : (
           <Suspense fallback={
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-slate-200">
               Loading backtester?
             </div>
           }>
-            <Backtester market={market} />
+            <ProGate isPro={isPro} activateCode={activateCode}>
+              <Backtester market={market} />
+            </ProGate>
           </Suspense>
         )}
       </div>
@@ -457,7 +491,7 @@ function Dashboard({ market, signals, riskManager }) {
             }}
             className="min-h-[44px] flex-1 rounded-lg px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800"
           >
-            Backtest
+            Backtest {!isPro ? " (PRO)" : ""}
           </button>
           <button
             onClick={() => {

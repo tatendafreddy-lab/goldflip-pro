@@ -85,3 +85,56 @@ export function getTradeJournal(trades) {
 
   return { totalTrades, winRate, avgRR, totalPnL, bestTrade, worstTrade };
 }
+
+export function calculateKelly({ winRate, avgWin, avgLoss, accountBalance }) {
+  const w = Number(winRate);
+  const avgW = Number(avgWin);
+  const avgL = Math.abs(Number(avgLoss));
+  const balance = Number(accountBalance) || 0;
+
+  if (!Number.isFinite(w) || !Number.isFinite(avgW) || !Number.isFinite(avgL) || balance <= 0) {
+    return {
+      fullKelly: 0,
+      halfKelly: 0,
+      quarterKelly: 0,
+      dollarFull: 0,
+      dollarHalf: 0,
+      dollarQuarter: 0,
+      recommendation: 0,
+      warning: "Insufficient data for Kelly",
+    };
+  }
+
+  // winRate provided as fraction (0-1) or percent (0-100)
+  const p = w > 1 ? w / 100 : w;
+  const q = 1 - p;
+
+  // K = (p/avgLoss) - (q/avgWin)
+  let K = (p / avgL) - (q / avgW);
+  if (!Number.isFinite(K) || K < 0) K = 0;
+
+  const cap = 0.05; // hard cap 5%
+  const fullKelly = Math.min(K, cap);
+  const halfKelly = Math.min(fullKelly * 0.5, cap);
+  const quarterKelly = Math.min(fullKelly * 0.25, cap);
+
+  const dollarFull = balance * fullKelly;
+  const dollarHalf = balance * halfKelly;
+  const dollarQuarter = balance * quarterKelly;
+
+  let warning = "";
+  if (fullKelly > 0.1) {
+    warning = "High confidence edge — cap at 5% until 100+ trades";
+  }
+
+  return {
+    fullKelly,
+    halfKelly,
+    quarterKelly,
+    dollarFull,
+    dollarHalf,
+    dollarQuarter,
+    recommendation: halfKelly,
+    warning,
+  };
+}

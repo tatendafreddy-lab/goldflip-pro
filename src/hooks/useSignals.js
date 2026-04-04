@@ -1,6 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useRef, useEffect } from "react";
 import { calculateRSI, calculateMACD } from "../utils/indicators.js";
 import { getLondonBreakoutSignal } from "../utils/londonBreakout.js";
+import { sendTelegramAlert } from "../utils/telegramAlert.js";
+import { saveSignal } from "../utils/tradeJournal.js";
 
 function rsiSignal(value) {
   if (value === null || value === undefined) return { signal: "neutral", confidence: 0 };
@@ -57,7 +59,10 @@ function macdSignal(macdLine, signalLine, histogram) {
 }
 
 export function useSignals(ohlcv) {
-  return useMemo(() => {
+  const alertRef = useRef(null);
+  const journalRef = useRef(null);
+
+  const computed = useMemo(() => {
     const closes = Array.isArray(ohlcv) ? ohlcv.map((c) => c.close) : [];
     if (!closes.length) {
       return {
@@ -101,4 +106,46 @@ export function useSignals(ohlcv) {
       londonBreakout,
     };
   }, [ohlcv]);
+
+  useEffect(() => {
+    const { combined, confidence, londonBreakout } = computed;
+    if (!combined || combined === "neutral") return;
+    if (confidence <= 70) return;
+
+    const key = `${combined}-${confidence}-${londonBreakout?.entry || ""}`;
+    if (alertRef.current === key) return;
+
+    alertRef.current = key;
+    const direction = combined.toUpperCase();
+    const entry = londonBreakout?.entry ?? ohlcv?.[ohlcv.length - 1]?.close ?? 0;
+    const stopLoss = londonBreakout?.stopLoss ?? "N/A";
+    const takeProfit = londonBreakout?.takeProfit ?? "N/A";
+    const riskReward = londonBreakout?.riskReward ?? "N/A";
+
+    sendTelegramAlert({
+      direction,
+      entry,
+      stopLoss,
+      takeProfit,
+      riskReward,
+      confidence,
+    }).catch(() => {});
+
+    // Journal save once per signal
+    const journalKey = `${direction}-${entry}-${stopLoss}-${takeProfit}`;
+    if (journalRef.current === journalKey) return;
+    journalRef.current = journalKey;
+    saveSignal({
+      direction,
+      entry,
+      stopLoss,
+      takeProfit,
+      riskReward,
+      confidence,
+      strategy: "London Breakout",
+      timestamp: Date.now(),
+    });
+  }, [computed, ohlcv]);
+
+  return computed;
 }

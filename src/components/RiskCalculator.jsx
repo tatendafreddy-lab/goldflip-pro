@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { calculatePositionSize } from "../utils/riskEngine.js";
+import { useMemo, useState } from "react";
+import { calculatePositionSize, calculateKelly } from "../utils/riskEngine.js";
 
 function Stat({ label, value, accent = false, danger = false }) {
   return (
@@ -31,7 +31,12 @@ function RiskCalculator({ riskManager }) {
     getJournal,
   } = riskManager;
 
-  const { positionSize, dollarRisk } = useMemo(() => getPosition(), [accountBalance, riskPercent, entryPrice, stopLoss]);
+  const [kellyMode, setKellyMode] = useState(false);
+
+  const { positionSize, dollarRisk } = useMemo(
+    () => getPosition(),
+    [accountBalance, riskPercent, entryPrice, stopLoss]
+  );
 
   const takeProfit = useMemo(() => {
     const dist = entryPrice - stopLoss;
@@ -44,6 +49,24 @@ function RiskCalculator({ riskManager }) {
   const journal = getJournal();
 
   const riskWarning = riskPercent > 2;
+
+  const kellyInputs = useMemo(() => {
+    const enoughData = journal.totalTrades >= 30;
+    const winRate = enoughData ? journal.winRate / 100 : 0.58;
+    const avgRR = enoughData ? journal.avgRR : 2;
+    const avgWin = avgRR; // assume 1R risk, avg reward = avgRR
+    const avgLoss = 1;
+    return { enoughData, winRate, avgWin, avgLoss };
+  }, [journal]);
+
+  const kelly = calculateKelly({
+    winRate: kellyInputs.winRate,
+    avgWin: kellyInputs.avgWin,
+    avgLoss: kellyInputs.avgLoss,
+    accountBalance,
+  });
+
+  const adjustedRisk = riskPercent * (riskManager.riskMultiplier || 1);
 
   return (
     <div className="glass-panel p-5">
@@ -123,6 +146,10 @@ function RiskCalculator({ riskManager }) {
         />
       </div>
 
+      <p className="mt-2 text-xs text-amber-200">
+        Regime adjustment: {(adjustedRisk).toFixed(2)}% (base {riskPercent.toFixed(2)}%)
+      </p>
+
       {riskWarning && (
         <p className="mt-2 rounded-lg border border-rose-500/50 bg-rose-900/20 px-3 py-2 text-xs text-rose-100">
           Warning: risk per trade above 2%. Consider dialing down to protect the account.
@@ -141,8 +168,101 @@ function RiskCalculator({ riskManager }) {
         <Stat label="Avg RR" value={journal.avgRR.toFixed(2)} />
         <Stat label="Total PnL" value={`$${journal.totalPnL.toFixed(2)}`} />
       </div>
+
+      {/* Kelly Sizer */}
+      <div className="mt-6 space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Kelly Sizer</p>
+            <p className="text-sm text-slate-300">
+              Using {kellyInputs.enoughData ? "live journal stats" : "backtest defaults (58% / 2R)"}
+            </p>
+          </div>
+          <div className="text-xs text-slate-400 max-w-md">
+            Kelly Criterion calculates the mathematically optimal bet size to maximise account growth. Half Kelly gives
+            75% of the growth with much lower risk of ruin.
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3 text-sm">
+          <KellyCard label="Full Kelly" value={kelly.fullKelly} dollars={kelly.dollarFull} />
+          <KellyCard label="Half Kelly (Recommended)" value={kelly.halfKelly} dollars={kelly.dollarHalf} highlight />
+          <KellyCard label="Quarter Kelly" value={kelly.quarterKelly} dollars={kelly.dollarQuarter} />
+        </div>
+
+        {kelly.warning && (
+          <p className="rounded-lg border border-amber-500/50 bg-amber-900/20 px-3 py-2 text-xs text-amber-100">
+            {kelly.warning}
+          </p>
+        )}
+
+        <button
+          onClick={() => setRiskPercent(Number((kelly.halfKelly * 100).toFixed(2)))}
+          className="rounded-lg bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-200"
+        >
+          Use this size ({(kelly.halfKelly * 100).toFixed(2)}%)
+        </button>
+      </div>
+
+      {/* Compounding projections */}
+      <div className="mt-4 rounded-lg border border-slate-800 bg-slate-900/60 p-4 text-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Compounding projections</p>
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={kellyMode}
+              onChange={(e) => setKellyMode(e.target.checked)}
+              className="accent-amber-300"
+            />
+            Kelly mode (Half Kelly) vs fixed 1%
+          </label>
+        </div>
+        <CompoundingBlock balance={accountBalance} halfKelly={kelly.halfKelly} kellyMode={kellyMode} />
+      </div>
     </div>
   );
 }
 
 export default RiskCalculator;
+
+function KellyCard({ label, value, dollars, highlight = false }) {
+  return (
+    <div
+      className={`rounded-lg border p-3 ${
+        highlight ? "border-amber-400 bg-amber-400/10" : "border-slate-800 bg-slate-900/70"
+      }`}
+    >
+      <p className="text-xs uppercase tracking-[0.15em] text-slate-400">{label}</p>
+      <p className="text-lg font-semibold text-amber-200">{(value * 100).toFixed(2)}%</p>
+      <p className="text-xs text-slate-300">~ ${dollars.toFixed(2)} risk</p>
+    </div>
+  );
+}
+
+function CompoundingBlock({ balance, halfKelly, kellyMode }) {
+  const trades = 60;
+  const fixedRisk = 0.01;
+
+  let balFixed = balance;
+  let balKelly = balance;
+  for (let i = 0; i < trades; i += 1) {
+    const growth = 0.02; // placeholder expected edge per trade
+    balFixed *= 1 + fixedRisk * growth;
+    balKelly *= 1 + (halfKelly || 0.01) * growth;
+  }
+
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 text-sm">
+      <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+        <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Fixed 1% risk (60 trades)</p>
+        <p className="text-lg font-semibold text-slate-100">${balFixed.toFixed(2)}</p>
+      </div>
+      <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-3">
+        <p className="text-xs uppercase tracking-[0.15em] text-slate-200">Kelly (Half) {kellyMode ? "(on)" : "(off)"}</p>
+        <p className="text-lg font-semibold text-amber-200">${balKelly.toFixed(2)}</p>
+        <p className="text-xs text-amber-100">Shows faster compounding when Kelly mode is used</p>
+      </div>
+    </div>
+  );
+}

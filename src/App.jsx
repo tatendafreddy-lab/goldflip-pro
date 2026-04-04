@@ -3,6 +3,7 @@ import Dashboard from "./components/Dashboard.jsx";
 import { useGoldPrice } from "./hooks/useGoldPrice.js";
 import { useSignals } from "./hooks/useSignals.js";
 import { useRiskManagerStore } from "./hooks/useRiskManager.js";
+import { sendTelegramAlert } from "./utils/telegramAlert.js";
 
 function ModeToggle({ mode, onChange }) {
   return (
@@ -37,6 +38,7 @@ function SettingsPanel({ open, onClose, riskManager }) {
     setTimezoneOffset,
     setAlertSoundEnabled,
   } = riskManager;
+  const [testStatus, setTestStatus] = useState("");
 
   if (!open) return null;
 
@@ -104,6 +106,35 @@ function SettingsPanel({ open, onClose, riskManager }) {
               className="h-4 w-4 accent-amber-300"
             />
           </label>
+
+          <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900 px-3 py-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-wide text-slate-400">Telegram test alert</span>
+              <button
+                onClick={async () => {
+                  setTestStatus("Sending...");
+                  try {
+                    await sendTelegramAlert({
+                      direction: "BUY",
+                      entry: 3150,
+                      stopLoss: 3140,
+                      takeProfit: 3170,
+                      riskReward: "2.0",
+                      confidence: 80,
+                    });
+                    setTestStatus("Sent!");
+                    setTimeout(() => setTestStatus(""), 2000);
+                  } catch (e) {
+                    setTestStatus("Failed");
+                  }
+                }}
+                className="rounded-md border border-amber-300 px-3 py-1 text-xs font-semibold text-amber-200 hover:bg-amber-300/10"
+              >
+                Send Test Alert
+              </button>
+            </div>
+            {testStatus && <p className="text-xs text-slate-300">{testStatus}</p>}
+          </div>
         </div>
       </div>
     </div>

@@ -24,8 +24,11 @@ function PriceTooltip({ active, payload }) {
   );
 }
 
-function PriceChart({ market, signals }) {
-  const data = useMemo(() => market.ohlcv.slice(-50), [market.ohlcv]);
+function PriceChart({ market, signals, isPro }) {
+  const data = useMemo(
+    () => market.ohlcv.slice(isPro ? -50 : -20),
+    [market.ohlcv, isPro]
+  );
   const asian = useMemo(() => getAsianRange(market.ohlcv), [market.ohlcv]);
   const lb = signals?.londonBreakout ?? {};
 
