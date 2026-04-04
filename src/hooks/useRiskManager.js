@@ -16,7 +16,7 @@ export const useRiskManagerStore = create(
       riskPercent: 1,
       entryPrice: 2300,
       stopLoss: 2295,
-      apiKey: "",
+      apiKey: import.meta.env.VITE_GOLD_API_KEY || "",
       timezoneOffset: 120, // default UTC+2 (Africa/Harare), minutes offset from GMT
       alertSoundEnabled: true,
       mode: "live", // demo | live
@@ -29,8 +29,7 @@ export const useRiskManagerStore = create(
       setApiKey: (value) => set({ apiKey: value || "" }),
       setTimezoneOffset: (value) => set({ timezoneOffset: Number(value) || 0 }),
       setAlertSoundEnabled: (value) => set({ alertSoundEnabled: Boolean(value) }),
-      setMode: (value) =>
-        set({ mode: value === "live" ? "live" : "demo" }),
+      setMode: (value) => set({ mode: value === "live" ? "live" : "demo" }),
 
       addTrade: (trade) =>
         set((state) => {
@@ -64,17 +63,15 @@ export const useRiskManagerStore = create(
     }),
     {
       name: STORAGE_KEY,
-      version: 3,
+      version: 4,
       migrate: (persistedState, version) => {
         if (!persistedState?.state) return persistedState;
         const next = { ...persistedState };
 
-        // v2: force live as default
         if (version < 2) {
           next.state = { ...next.state, mode: "live" };
         }
 
-        // v3: set default timezone to UTC+2 if unset/zero
         if (version < 3) {
           const tz = next.state?.timezoneOffset;
           if (tz === undefined || tz === null || tz === 0) {
@@ -82,10 +79,18 @@ export const useRiskManagerStore = create(
           }
         }
 
-        next.version = 3;
+        // v4: backfill API key from env if missing
+        if (version < 4) {
+          const storedKey = next.state?.apiKey;
+          const envKey = import.meta.env.VITE_GOLD_API_KEY;
+          if ((!storedKey || storedKey.length === 0) && envKey) {
+            next.state = { ...next.state, apiKey: envKey };
+          }
+        }
+
+        next.version = 4;
         return next;
       },
     }
   )
 );
-
