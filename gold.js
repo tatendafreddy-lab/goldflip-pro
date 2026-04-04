@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Note: the documented JSON endpoint is api.gold-api.com (no www)
+    // JSON endpoint (no “www”)
     const response = await fetch("https://api.gold-api.com/price/XAU", {
       headers: { "x-access-token": apiKey },
     });
@@ -23,7 +23,9 @@ export default async function handler(req, res) {
       return res.status(200).json(data);
     } catch (parseErr) {
       console.error("Gold-API JSON parse error:", parseErr.message);
-      return res.status(500).json({ error: "Invalid JSON from Gold-API", body: text.slice(0, 500) });
+      return res
+        .status(500)
+        .json({ error: "Invalid JSON from Gold-API", body: text.slice(0, 500) });
     }
   } catch (err) {
     console.error("Gold-API error:", err.message);
