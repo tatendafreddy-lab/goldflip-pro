@@ -147,12 +147,15 @@ export function useGoldPrice(apiKey, mode = "live") {
         if (!cancelled) setIsLoading(true);
 
         const response = await axios.get(API_URL, {
-          timeout: 8000
+          timeout: 8000,
+          headers: apiKey ? { "x-gold-key": apiKey } : undefined,
+          validateStatus: () => true, // let us inspect non-200 responses
         });
 
         console.log("[useGoldPrice] Raw response:", response.status, response.data);
 
         if (response.status !== 200) {
+          console.error("[useGoldPrice] Non-200 response body:", response.data);
           throw new Error(`HTTP ${response.status}`);
         }
 
@@ -177,7 +180,7 @@ export function useGoldPrice(apiKey, mode = "live") {
           setIsLoading(false);
         }
       } catch (err) {
-        console.error("[useGoldPrice] Fetch failed:", err.message);
+        console.error("[useGoldPrice] Fetch failed:", err.message, err?.response?.data);
 
         // Try stale cache before falling back to mock
         const cache = readCache();
