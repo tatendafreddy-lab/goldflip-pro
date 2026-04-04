@@ -318,13 +318,17 @@ function App() {
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const market = useGoldPrice(riskManager.apiKey, riskManager.mode);
-  const signals = useSignals(market.ohlcv);
+  // Prefer env key (or hardcoded fallback) so Live works automatically.
+  const goldApiKey =
+    riskManager.apiKey ||
+    import.meta.env.VITE_GOLD_API_KEY ||
+    "b675823b982ae86a2b9a843438f64171db76b53c319a4533e9da8fb6039e9bce";
 
-  // If no API key, default to demo to satisfy mock-only requirement
-  if (!riskManager.apiKey && riskManager.mode === "live") {
-    riskManager.setMode("demo");
-  }
+  // If we have a key, force live; otherwise keep stored mode.
+  const effectiveMode = goldApiKey ? "live" : riskManager.mode;
+
+  const market = useGoldPrice(goldApiKey, effectiveMode);
+  const signals = useSignals(market.ohlcv);
 
   const closeOnboarding = () => {
     try {
