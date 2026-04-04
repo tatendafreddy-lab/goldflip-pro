@@ -10,6 +10,7 @@ import ProGate from "./ProGate.jsx";
 import { useAccess } from "../hooks/useAccess.js";
 import JournalPanel from "./JournalPanel.jsx";
 import CompoundTracker from "./CompoundTracker.jsx";
+import { InstallButton } from "../hooks/usePWA.jsx";
 
 const Backtester = lazy(() => import("./Backtester.jsx"));
 
@@ -313,6 +314,7 @@ function Dashboard({ market, signals, riskManager }) {
               </p>
             </div>
             <KillZoneTimer />
+            <InstallButton />
             <button
               onClick={() => setFeedOpen((o) => !o)}
               className="relative rounded-full border border-slate-700 bg-slate-900/80 p-2 text-slate-200 hover:border-amber-300 hover:text-amber-200"
