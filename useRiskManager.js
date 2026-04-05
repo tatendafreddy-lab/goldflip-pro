@@ -20,6 +20,7 @@ export const useRiskManagerStore = create(
       apiKey:
         import.meta.env.VITE_GOLD_API_KEY ||
         "b675823b982ae86a2b9a843438f64171db76b53c319a4533e9da8fb6039e9bce",
+      derivToken: import.meta.env.VITE_DERIV_API_TOKEN || "",
       timezoneOffset: 120, // default UTC+2 (Africa/Harare), minutes offset from GMT
       alertSoundEnabled: true,
       // If a key exists, start in live; otherwise stay demo.
@@ -35,6 +36,7 @@ export const useRiskManagerStore = create(
       setEntryPrice: (value) => set({ entryPrice: Number(value) || 0 }),
       setStopLoss: (value) => set({ stopLoss: Number(value) || 0 }),
       setApiKey: (value) => set({ apiKey: value || "" }),
+      setDerivToken: (value) => set({ derivToken: value || "" }),
       setTimezoneOffset: (value) => set({ timezoneOffset: Number(value) || 0 }),
       setAlertSoundEnabled: (value) => set({ alertSoundEnabled: Boolean(value) }),
       setMode: (value) =>
@@ -106,6 +108,10 @@ export const useRiskManagerStore = create(
             "b675823b982ae86a2b9a843438f64171db76b53c319a4533e9da8fb6039e9bce";
           if (envKey) {
             next.state = { ...next.state, apiKey: envKey, mode: "live" };
+          }
+          const derivKey = import.meta.env.VITE_DERIV_API_TOKEN || "";
+          if (derivKey) {
+            next.state = { ...next.state, derivToken: derivKey };
           }
         }
 

@@ -1,6 +1,6 @@
 import { EDGE_COLORS } from "../utils/edgeScore.js";
 
-export default function EdgeScoreGauge({ edge }) {
+export default function EdgeScoreGauge({ edge, winProb, expectedValue, trueKelly, insufficient }) {
   const score = edge?.score || 0;
   const grade = edge?.grade || "F";
   const label = edge?.label || "Skip";
@@ -79,13 +79,32 @@ export default function EdgeScoreGauge({ edge }) {
           </text>
         </svg>
 
-        {score >= 65 ? (
-          <button className="mt-2 rounded-lg bg-amber-300 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-amber-200">
-            TAKE THIS TRADE
-          </button>
-        ) : (
-          <p className="mt-2 text-xs text-slate-400">WAIT FOR BETTER SETUP</p>
-        )}
+        <div className="mt-2 text-center text-sm text-slate-200 space-y-1">
+          <p>
+            Calibrated Win Probability:{" "}
+            <span className="font-semibold">
+              {insufficient ? "Insufficient data" : `${(winProb * 100).toFixed(1)}%`}
+            </span>
+          </p>
+          <p>
+            Expected Value:{" "}
+            <span className={expectedValue < 0 ? "text-rose-300 font-semibold" : "text-emerald-300 font-semibold"}>
+              {expectedValue >= 0 ? "+" : ""}
+              {expectedValue.toFixed(2)} R
+            </span>
+          </p>
+          <p>
+            True Kelly (quarter):{" "}
+            <span className="font-semibold">{((trueKelly || 0) * 100).toFixed(2)}%</span>
+          </p>
+          {expectedValue < 0 ? (
+            <p className="text-xs text-rose-300">NEGATIVE EV — SKIP THIS TRADE</p>
+          ) : score >= 65 ? (
+            <p className="text-xs text-emerald-200">Positive EV — size with Dynamic Kelly</p>
+          ) : (
+            <p className="text-xs text-slate-400">WAIT FOR BETTER SETUP</p>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 space-y-2 text-sm">

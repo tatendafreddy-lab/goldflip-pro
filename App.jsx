@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Dashboard from "./components/Dashboard.jsx";
 import { useGoldPrice } from "./hooks/useGoldPrice.js";
 import { useSignals } from "./hooks/useSignals.js";
@@ -28,11 +28,13 @@ function ModeToggle({ mode, onChange }) {
 function SettingsPanel({ open, onClose, riskManager }) {
   const {
     apiKey,
+    derivToken,
     accountBalance,
     riskPercent,
     timezoneOffset,
     alertSoundEnabled,
     setApiKey,
+    setDerivToken,
     setAccountBalance,
     setRiskPercent,
     setTimezoneOffset,
@@ -65,6 +67,21 @@ function SettingsPanel({ open, onClose, riskManager }) {
               }}
               className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-100"
               placeholder="Optional - improves live price quality"
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs uppercase tracking-wide text-slate-400">Deriv API token</span>
+            <input
+              type="text"
+              value={derivToken || ""}
+              onChange={(e) => {
+                setDerivToken(e.target.value);
+                try {
+                  localStorage.setItem("deriv-token", e.target.value);
+                } catch {}
+              }}
+              className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-2 text-slate-100"
+              placeholder="Deriv token for auto-trader"
             />
           </label>
           <label className="flex flex-col gap-1">
@@ -309,6 +326,14 @@ function OnboardingOverlay({ open, onClose, riskManager }) {
 
 function App() {
   const riskManager = useRiskManagerStore();
+  const autoTradeRef = useRef({
+    enabled: false,
+    minEdgeScore: 70,
+    maxTradesPerDay: 3,
+    dailyTradeCount: 0,
+    safetyCanTrade: false,
+    onAutoTrade: null,
+  });
   const [onboardingOpen, setOnboardingOpen] = useState(() => {
     try {
       return !localStorage.getItem("goldflip-onboarded-v2");
@@ -328,7 +353,7 @@ function App() {
   const effectiveMode = goldApiKey ? "live" : riskManager.mode;
 
   const market = useGoldPrice(goldApiKey, effectiveMode);
-  const signals = useSignals(market.ohlcv);
+  const signals = useSignals(market.ohlcv, autoTradeRef.current);
 
   const closeOnboarding = () => {
     try {
@@ -357,7 +382,13 @@ function App() {
           Settings
         </button>
       </div>
-      <Dashboard market={market} signals={signals} riskManager={riskManager} />
+      <Dashboard
+        market={market}
+        signals={signals}
+        riskManager={riskManager}
+        autoTradeRef={autoTradeRef}
+      />
+      {/* Auto-trade bridge config is set inside Dashboard/AutoTrader via ref */}
       <OnboardingOverlay
         open={onboardingOpen}
         onClose={closeOnboarding}

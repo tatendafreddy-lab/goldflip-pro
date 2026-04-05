@@ -1,6 +1,12 @@
 ﻿import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { isLondonKillZone } from "../utils/londonBreakout.js";
 import { checkAlerts } from "../utils/alertEngine.js";
+import {
+  classifySession,
+  getSessionPerformanceStats,
+  getSessionSizingMultiplier,
+  nextHighLiquiditySession,
+} from "../utils/sessionEngine.js";
 import PriceChart from "./PriceChart.jsx";
 import SignalPanel from "./SignalPanel.jsx";
 import RiskCalculator from "./RiskCalculator.jsx";
@@ -10,7 +16,12 @@ import ProGate from "./ProGate.jsx";
 import { useAccess } from "../hooks/useAccess.js";
 import JournalPanel from "./JournalPanel.jsx";
 import CompoundTracker from "./CompoundTracker.jsx";
+import AutoTrader from "./AutoTrader.jsx";
+import SessionPanel from "./SessionPanel.jsx";
 import { InstallButton } from "../hooks/usePWA.jsx";
+import { getJournal as getTradeJournal } from "../utils/tradeJournal.js";
+import StrategyAllocator from "./StrategyAllocator.jsx";
+import ValidationPanel from "./ValidationPanel.jsx";
 
 const Backtester = lazy(() => import("./Backtester.jsx"));
 
@@ -118,9 +129,17 @@ function BellIcon({ filled }) {
   );
 }
 
-function Dashboard({ market, signals, riskManager }) {
+function Dashboard({ market, signals, riskManager, autoTradeRef }) {
   const { isPro, activateCode } = useAccess();
   const [tab, setTab] = useState("live");
+  const [now, setNow] = useState(() => new Date());
+  const [journalEntries, setJournalEntries] = useState(() => {
+    try {
+      return getTradeJournal();
+    } catch {
+      return [];
+    }
+  });
   const [alerts, setAlerts] = useState(() => {
     try {
       const raw = localStorage.getItem("goldflip-alerts");
@@ -147,6 +166,31 @@ function Dashboard({ market, signals, riskManager }) {
   const priceChange = market.changePct ?? 0;
   const macdHist = signals?.macd?.histogram || [];
   const lastHist = macdHist[macdHist.length - 1] ?? 0;
+
+  // Clock for session classification
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Keep journal snapshot fresh for session stats
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const sync = () => {
+      try {
+        setJournalEntries(getTradeJournal());
+      } catch {
+        /* ignore */
+      }
+    };
+    const id = setInterval(sync, 15_000);
+    window.addEventListener("storage", sync);
+    sync();
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   // Request notification permission on load
   useEffect(() => {
@@ -264,6 +308,22 @@ function Dashboard({ market, signals, riskManager }) {
     });
   }, [signals, riskManager]);
 
+  const sessionInfo = useMemo(() => classifySession(now), [now]);
+  const sessionStats = useMemo(() => getSessionPerformanceStats(journalEntries), [journalEntries]);
+  const sweepDetected = useMemo(
+    () => !!(signals?.structure?.sweep?.swept && signals?.structure?.sweep?.reversalConfirmed),
+    [signals]
+  );
+  const sessionMultiplier = useMemo(
+    () => getSessionSizingMultiplier(sessionInfo, sessionStats, sweepDetected),
+    [sessionInfo, sessionStats, sweepDetected]
+  );
+  const nextSession = useMemo(() => nextHighLiquiditySession(now), [now]);
+  const sessionContext = useMemo(
+    () => ({ sessionInfo, sessionStats, sessionMultiplier, nextSession, sweepDetected }),
+    [sessionInfo, sessionStats, sessionMultiplier, nextSession, sweepDetected]
+  );
+
   const signalColor = (sig) => {
     if (sig === "buy") return "bg-emerald-400/20 text-emerald-200";
     if (sig === "sell") return "bg-rose-400/20 text-rose-200";
@@ -314,6 +374,11 @@ function Dashboard({ market, signals, riskManager }) {
               </p>
             </div>
             <KillZoneTimer />
+            {autoTradeRef?.current?.enabled ? (
+              <span className="animate-pulse rounded-full bg-amber-300/20 px-3 py-1 text-xs font-bold text-amber-200 border border-amber-300/60">
+                AUTO ON
+              </span>
+            ) : null}
             <InstallButton />
             <button
               onClick={() => setFeedOpen((o) => !o)}
@@ -332,7 +397,7 @@ function Dashboard({ market, signals, riskManager }) {
 
         {/* Tabs */}
         <div className="flex gap-2">
-          {["live", "journal", "growth", "backtest"].map((t) => (
+          {["live", "journal", "growth", "backtest", "autotrader", "validation"].map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -346,9 +411,13 @@ function Dashboard({ market, signals, riskManager }) {
                 ? "Live Trading"
                 : t === "journal"
                 ? "Journal"
-                : t === "growth"
+                 : t === "growth"
                 ? "Growth Tracker"
-                : "Backtester"}
+                : t === "backtest"
+                ? "Backtester"
+                : t === "autotrader"
+                ? "Auto-Trader"
+                : "Validation"}
               {t === "backtest" && !isPro ? (
                 <span className="ml-2 rounded-full bg-amber-300/20 px-2 py-0.5 text-[10px] font-bold text-amber-200">
                   PRO
@@ -426,15 +495,26 @@ function Dashboard({ market, signals, riskManager }) {
                   <PriceChart market={market} signals={signals} isPro={isPro} />
                 </div>
                 <ProGate isPro={isPro} activateCode={activateCode}>
-                  <SignalPanel signal={signals} />
+                  <SignalPanel
+                    signal={signals}
+                    price={market?.price}
+                    onSweepPrefill={(dir) => handleSweepPrefill(dir, signals?.structure?.sweep)}
+                  />
                 </ProGate>
               </div>
               <div className="space-y-6">
+                <SessionPanel
+                  sessionInfo={sessionInfo}
+                  sessionStats={sessionStats}
+                  sessionMultiplier={sessionMultiplier}
+                  nextSession={nextSession}
+                />
                 <div ref={riskRef}>
                   <ProGate isPro={isPro} activateCode={activateCode}>
-                    <RiskCalculator riskManager={riskManager} />
+                    <RiskCalculator riskManager={riskManager} sessionContext={sessionContext} />
                   </ProGate>
                 </div>
+                <StrategyAllocator />
                 <ProGate isPro={isPro} activateCode={activateCode}>
                   <TradeLog riskManager={riskManager} />
                 </ProGate>
@@ -445,6 +525,16 @@ function Dashboard({ market, signals, riskManager }) {
           <JournalPanel />
         ) : tab === "growth" ? (
           <CompoundTracker balance={riskManager.accountBalance} journal={riskManager.getJournal()} riskPercent={riskManager.riskPercent} />
+        ) : tab === "autotrader" ? (
+          <AutoTrader
+            signals={signals}
+            market={market}
+            riskManager={riskManager}
+            sessionContext={sessionContext}
+            autoTradeRef={autoTradeRef}
+          />
+        ) : tab === "validation" ? (
+          <ValidationPanel />
         ) : (
           <Suspense fallback={
             <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-slate-200">
@@ -512,3 +602,11 @@ function Dashboard({ market, signals, riskManager }) {
 
 export default Dashboard;
 
+  const handleSweepPrefill = (dir, sweep) => {
+    if (!sweep?.sweptLevel || !riskManager?.setEntryPrice || !riskManager?.setStopLoss) return;
+    const entry = sweep.sweptLevel;
+    const buffer = Math.max(1, (sweep.wickSize || 5) * 0.1); // at least $1, or wick*0.1 dollars
+    const stopLoss = dir === "BUY" ? entry - buffer : entry + buffer;
+    riskManager.setEntryPrice(Number(entry.toFixed(2)));
+    riskManager.setStopLoss(Number(stopLoss.toFixed(2)));
+  };

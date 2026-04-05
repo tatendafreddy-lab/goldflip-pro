@@ -12,6 +12,10 @@ export function calculateEdgeScore({
   worstRegime,
   currentRegime,
   journalTrades,
+  squeezeBoost = 0,
+  sweepBoost = 0,
+  macroBoost = 0,
+  liquidityScore = 0,
 }) {
   const breakdown = {
     kill: 0,
@@ -70,12 +74,21 @@ export function calculateEdgeScore({
   }
 
   // Aggregate
+  const liquidityBonus = Math.max(0, Number(liquidityScore) || 0) / 10;
+  if (liquidityBonus > 0) {
+    reasoning.push(`Session liquidity +${liquidityBonus.toFixed(1)}`);
+  }
+
   const score =
     breakdown.kill +
     breakdown.breakout +
     breakdown.rsi +
     breakdown.macd +
-    breakdown.trend;
+    breakdown.trend +
+    squeezeBoost +
+    sweepBoost +
+    macroBoost +
+    liquidityBonus;
 
   // Personal edge adjustments
   if (journalTrades >= 50 && currentRegime) {

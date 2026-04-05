@@ -4,6 +4,7 @@ import {
   getJournalStats,
   updateTrade,
 } from "../utils/tradeJournal.js";
+import { getCLVStats, getSizingMultiplier } from "../utils/clvTracker.js";
 
 function OutcomeTag({ outcome }) {
   if (outcome === "win") return <span className="text-emerald-400 font-semibold">WIN</span>;
@@ -17,6 +18,8 @@ export default function JournalPanel() {
   const [editing, setEditing] = useState({});
 
   const stats = useMemo(() => getJournalStats(), [rows]);
+  const clvStats = useMemo(() => getCLVStats(rows), [rows]);
+  const clvMult = getSizingMultiplier(clvStats);
 
   useEffect(() => {
     setRows(getJournal());
@@ -116,6 +119,28 @@ export default function JournalPanel() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-slate-400">Closing Line Value</p>
+            <h3 className="text-lg font-semibold text-slate-100">
+              Avg CLV: {clvStats.averageCLV.toFixed(2)} · Trend: {clvStats.clvTrend}
+            </h3>
+            <p className="text-xs text-slate-400">Last20: {clvStats.last20CLV.toFixed(2)} · Last50: {clvStats.last50CLV.toFixed(2)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Sizing Multiplier</p>
+            <p className={`text-xl font-semibold ${clvMult <= 0.5 ? "text-rose-300" : "text-emerald-300"}`}>x {clvMult.toFixed(2)}</p>
+          </div>
+        </div>
+        <p className="mt-2 text-xs text-slate-400">{clvStats.interpretation}</p>
+        {clvMult <= 0.25 && (
+          <p className="mt-2 rounded-lg border border-rose-500/60 bg-rose-900/30 px-3 py-2 text-xs text-rose-100">
+            EDGE DEGRADING — consider pausing automation until CLV recovers.
+          </p>
+        )}
       </div>
 
       {/* Stats row */}

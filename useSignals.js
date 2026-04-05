@@ -1,5 +1,6 @@
 import { useMemo, useRef, useEffect } from "react";
-import { calculateRSI, calculateMACD } from "../utils/indicators.js";
+import { calculateRSI, calculateMACD, calculateBollingerBands, detectBreakOfStructure, detectEqualHighsLows } from "../utils/indicators.js";
+import { detectLiquiditySweep, detectFairValueGaps, isPriceInFVG } from "../utils/liquiditySweep.js";
 import { getLondonBreakoutSignal } from "../utils/londonBreakout.js";
 import { sendTelegramAlert } from "../utils/telegramAlert.js";
 import { saveSignal } from "../utils/tradeJournal.js";
@@ -58,7 +59,7 @@ function macdSignal(macdLine, signalLine, histogram) {
   return { signal: "neutral", confidence: 0, macdLine, signalLine, histogram };
 }
 
-export function useSignals(ohlcv) {
+export function useSignals(ohlcv, autoTradeConfig = null) {
   const alertRef = useRef(null);
   const journalRef = useRef(null);
 
@@ -78,6 +79,7 @@ export function useSignals(ohlcv) {
           riskReward: null,
           isKillZone: false,
         },
+        structure: {},
       };
     }
 
@@ -98,12 +100,38 @@ export function useSignals(ohlcv) {
     const currentPrice = closes[closes.length - 1];
     const londonBreakout = getLondonBreakoutSignal(ohlcv, currentPrice);
 
+    const bb = calculateBollingerBands(closes, 20, 2);
+    const bos = detectBreakOfStructure(ohlcv);
+    const equal = detectEqualHighsLows(ohlcv);
+    const sweep = detectLiquiditySweep(ohlcv, londonBreakout?.isKillZone);
+    const fvgs = detectFairValueGaps(ohlcv);
+    const price = closes[closes.length - 1];
+    const priceInFvg = isPriceInFVG(price, fvgs);
+
+    const structure = {
+      bollinger: {
+        squeeze: bb.squeeze[bb.squeeze.length - 1] || false,
+        squeezeRelease: bb.squeezeRelease || false,
+        upper: bb.upper[bb.upper.length - 1],
+        lower: bb.lower[bb.lower.length - 1],
+        middle: bb.middle[bb.middle.length - 1],
+        width: bb.width[bb.width.length - 1],
+      },
+      bos,
+      equal,
+      sweep,
+      fvgs,
+      priceInFvg,
+      macro: {}, // placeholder (set in MacroPanel fetch)
+    };
+
     return {
       rsi: { value: rsiValue, signal: rsiSig.signal },
       macd: { macdLine, signalLine, histogram, signal: macdSig.signal },
       combined,
       confidence,
       londonBreakout,
+      structure,
     };
   }, [ohlcv]);
 
@@ -129,7 +157,27 @@ export function useSignals(ohlcv) {
       takeProfit,
       riskReward,
       confidence,
+      sweep: computed?.structure?.sweep,
     }).catch(() => {});
+
+    // Optional auto-trade hook
+    if (
+      autoTradeConfig &&
+      autoTradeConfig.enabled &&
+      confidence >= (autoTradeConfig.minEdgeScore ?? 70) &&
+      (autoTradeConfig.dailyTradeCount ?? 0) < (autoTradeConfig.maxTradesPerDay ?? 3) &&
+      (londonBreakout?.isKillZone ?? false) &&
+      autoTradeConfig.safetyCanTrade
+    ) {
+      autoTradeConfig.onAutoTrade?.({
+        direction,
+        entry,
+        stopLoss,
+        takeProfit,
+        confidence,
+        riskReward,
+      });
+    }
 
     // Journal save once per signal
     const journalKey = `${direction}-${entry}-${stopLoss}-${takeProfit}`;

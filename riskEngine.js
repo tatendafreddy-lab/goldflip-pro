@@ -86,7 +86,18 @@ export function getTradeJournal(trades) {
   return { totalTrades, winRate, avgRR, totalPnL, bestTrade, worstTrade };
 }
 
-export function calculateKelly({ winRate, avgWin, avgLoss, accountBalance }) {
+export function calculateKelly({
+  winRate,
+  avgWin,
+  avgLoss,
+  accountBalance,
+  regimeConfidence = 1,
+  edgeScore = 50,
+  sweepDetected = false,
+  macroConfluence = 50,
+  consecutiveLosses = 0,
+  modelTrustScore = 100,
+}) {
   const w = Number(winRate);
   const avgW = Number(avgWin);
   const avgL = Math.abs(Number(avgLoss));
@@ -127,6 +138,48 @@ export function calculateKelly({ winRate, avgWin, avgLoss, accountBalance }) {
     warning = "High confidence edge — cap at 5% until 100+ trades";
   }
 
+  // Dynamic Kelly sizing based on macro / regime confidence
+  let multipliers = [];
+  let dynamic = fullKelly;
+  const baseKelly = fullKelly;
+
+  dynamic *= regimeConfidence;
+  multipliers.push(`Regime confidence x${regimeConfidence.toFixed(2)}`);
+
+  dynamic *= Math.max(0, edgeScore) / 100;
+  multipliers.push(`Edge score x${(Math.max(0, edgeScore) / 100).toFixed(2)}`);
+
+  dynamic *= Math.max(0, macroConfluence) / 100;
+  multipliers.push(`Macro confluence x${(Math.max(0, macroConfluence) / 100).toFixed(2)}`);
+
+  if (sweepDetected) {
+    dynamic *= 1.25;
+    multipliers.push("Sweep detected x1.25");
+  }
+
+  if (consecutiveLosses === 1) {
+    dynamic *= 0.75;
+    multipliers.push("1 loss streak x0.75");
+  } else if (consecutiveLosses === 2) {
+    dynamic *= 0.5;
+    multipliers.push("2 loss streak x0.50");
+  } else if (consecutiveLosses >= 3) {
+    dynamic = 0;
+    multipliers.push("3+ losses → 0 (pause)");
+  }
+
+  dynamic *= Math.max(0, modelTrustScore) / 100;
+  multipliers.push(`Model trust x${(Math.max(0, modelTrustScore) / 100).toFixed(2)}`);
+
+  dynamic = Math.min(dynamic, cap);
+
+  const dollarRisk = balance * dynamic;
+  const positionSize = dollarRisk / 1; // assume 1R risk unit; caller can adjust with stop distance
+
+  const explanation = `Dynamic Kelly: base ${(baseKelly * 100).toFixed(
+    2
+  )}% with ${multipliers.join(", ")} => ${(dynamic * 100).toFixed(2)}%`;
+
   return {
     fullKelly,
     halfKelly,
@@ -136,5 +189,11 @@ export function calculateKelly({ winRate, avgWin, avgLoss, accountBalance }) {
     dollarQuarter,
     recommendation: halfKelly,
     warning,
+    dynamicKelly: dynamic,
+    baseKelly,
+    multipliers,
+    explanation,
+    dollarRisk,
+    positionSize,
   };
 }

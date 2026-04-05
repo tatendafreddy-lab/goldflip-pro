@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
 import { calculatePositionSize, calculateKelly } from "../utils/riskEngine.js";
+import { getCLVStats, getSizingMultiplier } from "../utils/clvTracker.js";
+import { compareBacktestToLive } from "../utils/validationEngine.js";
+import { getJournal as getTradeJournal } from "../utils/tradeJournal.js";
 
 function Stat({ label, value, accent = false, danger = false }) {
   return (
@@ -16,7 +19,7 @@ function Stat({ label, value, accent = false, danger = false }) {
   );
 }
 
-function RiskCalculator({ riskManager }) {
+function RiskCalculator({ riskManager, sessionContext }) {
   const {
     accountBalance,
     riskPercent,
@@ -31,17 +34,16 @@ function RiskCalculator({ riskManager }) {
     getJournal,
   } = riskManager;
 
+  const sessionMultiplier = sessionContext?.sessionMultiplier ?? 1;
   const [kellyMode, setKellyMode] = useState(false);
 
-  const { positionSize, dollarRisk } = useMemo(
-    () => getPosition(),
-    [accountBalance, riskPercent, entryPrice, stopLoss]
-  );
+  const basePosition = useMemo(() => getPosition(), [accountBalance, riskPercent, entryPrice, stopLoss]);
+  const positionSize = (basePosition.positionSize || 0) * sessionMultiplier;
+  const dollarRisk = (basePosition.dollarRisk || 0) * sessionMultiplier;
 
   const takeProfit = useMemo(() => {
     const dist = entryPrice - stopLoss;
     if (!Number.isFinite(dist) || dist === 0) return null;
-    // 2R target
     return stopLoss < entryPrice ? entryPrice + Math.abs(dist) * 2 : entryPrice - Math.abs(dist) * 2;
   }, [entryPrice, stopLoss]);
 
@@ -54,19 +56,50 @@ function RiskCalculator({ riskManager }) {
     const enoughData = journal.totalTrades >= 30;
     const winRate = enoughData ? journal.winRate / 100 : 0.58;
     const avgRR = enoughData ? journal.avgRR : 2;
-    const avgWin = avgRR; // assume 1R risk, avg reward = avgRR
+    const avgWin = avgRR;
     const avgLoss = 1;
     return { enoughData, winRate, avgWin, avgLoss };
   }, [journal]);
+
+  const clvStats = getCLVStats(riskManager.getJournal ? riskManager.getJournal() : null);
+  const clvMultiplier = getSizingMultiplier(clvStats);
+
+  const liveJournalEntries = useMemo(() => getTradeJournal(), []);
+  const liveTrades = useMemo(
+    () => liveJournalEntries.filter((t) => t.outcome === "win" || t.outcome === "loss"),
+    [liveJournalEntries]
+  );
+  const liveWinRate =
+    liveTrades.length > 0 ? liveTrades.filter((t) => t.outcome === "win").length / liveTrades.length : 0;
+  const rrVals = liveTrades
+    .map((t) => Number(t.riskReward))
+    .filter((n) => Number.isFinite(n) && n !== 0);
+  const liveAvgRR = rrVals.length ? rrVals.reduce((a, b) => a + b, 0) / rrVals.length : 1;
+  const validation = compareBacktestToLive({
+    backtestWinRate: 0.58,
+    backtestAvgRR: 2.0,
+    backtestMaxDrawdown: 5,
+    liveWinRate,
+    liveAvgRR,
+    liveMaxDrawdown: 5,
+    liveTrades: liveTrades.length,
+  });
 
   const kelly = calculateKelly({
     winRate: kellyInputs.winRate,
     avgWin: kellyInputs.avgWin,
     avgLoss: kellyInputs.avgLoss,
     accountBalance,
+    regimeConfidence: riskManager.regimeConfidence || 1,
+    edgeScore: riskManager.edgeScore || 50,
+    sweepDetected: riskManager.sweepDetected || false,
+    macroConfluence: riskManager.macroConfluence || 50,
+    consecutiveLosses: riskManager.consecutiveLosses || 0,
+    modelTrustScore: validation.modelTrustScore || 50,
   });
 
-  const adjustedRisk = riskPercent * (riskManager.riskMultiplier || 1);
+  const adjustedRisk =
+    riskPercent * (riskManager.riskMultiplier || 1) * clvMultiplier * sessionMultiplier;
 
   return (
     <div className="glass-panel p-5">
@@ -147,7 +180,7 @@ function RiskCalculator({ riskManager }) {
       </div>
 
       <p className="mt-2 text-xs text-amber-200">
-        Regime adjustment: {(adjustedRisk).toFixed(2)}% (base {riskPercent.toFixed(2)}%)
+        Adjusted risk: {adjustedRisk.toFixed(2)}% (base {riskPercent.toFixed(2)}% · session x{sessionMultiplier.toFixed(2)} · CLV x{clvMultiplier.toFixed(2)})
       </p>
 
       {riskWarning && (
@@ -170,10 +203,10 @@ function RiskCalculator({ riskManager }) {
       </div>
 
       {/* Kelly Sizer */}
-      <div className="mt-6 space-y-3 rounded-lg border border-slate-800 bg-slate-900/60 p-4">
+      <div className="mt-6 space-y-3 rounded-lg border border-amber-400/50 bg-amber-400/10 p-3 text-sm text-amber-100">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Kelly Sizer</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Kelly Sizer</p>
             <p className="text-sm text-slate-300">
               Using {kellyInputs.enoughData ? "live journal stats" : "backtest defaults (58% / 2R)"}
             </p>
@@ -188,6 +221,34 @@ function RiskCalculator({ riskManager }) {
           <KellyCard label="Full Kelly" value={kelly.fullKelly} dollars={kelly.dollarFull} />
           <KellyCard label="Half Kelly (Recommended)" value={kelly.halfKelly} dollars={kelly.dollarHalf} highlight />
           <KellyCard label="Quarter Kelly" value={kelly.quarterKelly} dollars={kelly.dollarQuarter} />
+        </div>
+
+        <div className="rounded-lg border border-amber-400/50 bg-amber-400/10 p-3 text-sm text-amber-100">
+          <p className="text-xs uppercase tracking-[0.2em] text-amber-200">Dynamic Kelly</p>
+          <p className="text-xl font-semibold text-amber-100">
+            {(kelly.dynamicKelly * 100).toFixed(2)}% risk per trade
+          </p>
+          <p className="text-xs text-amber-100/80">
+            Base: {(kelly.baseKelly * 100).toFixed(2)}% · {kelly.multipliers.join(" · ")}
+          </p>
+          <p className="text-xs text-amber-100/70 mt-1">{kelly.explanation}</p>
+          <div className="mt-2 grid gap-2 md:grid-cols-2 text-xs text-slate-900">
+            <div className="rounded bg-slate-100/90 p-2 font-semibold">
+              Static 1% win ≈ ${((accountBalance * 0.01) * 2).toFixed(2)} at 2R
+            </div>
+            <div className="rounded bg-amber-200/90 p-2 font-semibold">
+              Dynamic Kelly win ≈ ${((accountBalance * kelly.dynamicKelly) * 2).toFixed(2)} at 2R
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-200">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">CLV Sizing Multiplier</p>
+          <p className="text-lg font-semibold text-amber-200">x {clvMultiplier.toFixed(2)}</p>
+          <p className="text-xs text-slate-400">
+            Avg CLV: {clvStats.averageCLV.toFixed(2)} · Last20: {clvStats.last20CLV.toFixed(2)} · Trend: {clvStats.clvTrend}
+          </p>
+          <p className="text-xs text-slate-400 mt-1">{clvStats.interpretation}</p>
         </div>
 
         {kelly.warning && (

@@ -1,33 +1,12 @@
 {
   "name": "GoldFlip Pro",
   "short_name": "GoldFlip",
-  "description": "Professional XAU/USD gold trading signals and risk management",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0F0F0F",
   "theme_color": "#C9A84C",
-  "orientation": "portrait-primary",
   "icons": [
-    {
-      "src": "/icons/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/icons/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ],
-  "categories": ["finance", "utilities"],
-  "screenshots": [],
-  "shortcuts": [
-    {
-      "name": "Live Trading",
-      "url": "/app",
-      "description": "Open live trading dashboard"
-    }
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
   ]
 }
